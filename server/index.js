@@ -1,0 +1,993 @@
+import http from "node:http";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { existsSync, createReadStream } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const rootDir = path.resolve(__dirname, "..");
+const dataDir = path.join(rootDir, "data");
+const publicDir = path.join(rootDir, "public");
+const sourcesFile = path.join(dataDir, "sources.json");
+const stateFile = path.join(dataDir, "state.json");
+const defaultSourcesFile = path.join(rootDir, "config", "default-sources.json");
+const port = Number(process.env.PORT || 3001);
+const host = process.env.HOST || (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
+
+const defaultState = {
+  schedule: { enabled: true, time: "09:00" },
+  push: { webhookUrls: [], enabled: false },
+  latestRun: null,
+  logs: [],
+  items: [],
+  recommendations: []
+};
+
+const mimeTypes = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml"
+};
+
+const countryNames = {
+  ESP: "西班牙赛事",
+  ENG: "英格兰赛事",
+  GER: "德国赛事",
+  ITA: "意大利赛事",
+  FRA: "法国赛事",
+  NED: "荷兰赛事",
+  POR: "葡萄牙赛事",
+  SCO: "苏格兰赛事"
+};
+
+const footballDataLeagueNames = {
+  E0: "英格兰超级联赛",
+  SP1: "西班牙甲级联赛",
+  D1: "德国甲级联赛",
+  I1: "意大利甲级联赛",
+  F1: "法国甲级联赛"
+};
+
+const footballDataTimeZones = {
+  E0: "Europe/London",
+  SP1: "Europe/Madrid",
+  D1: "Europe/Berlin",
+  I1: "Europe/Rome",
+  F1: "Europe/Paris"
+};
+
+const targetTimeZone = "Asia/Shanghai";
+
+const teamChineseNames = {
+  Almeria: "阿尔梅里亚",
+  "Ath Bilbao": "毕尔巴鄂竞技",
+  "Aston Villa": "阿斯顿维拉",
+  Augsburg: "奥格斯堡",
+  Barcelona: "巴塞罗那",
+  "Bayern Munich": "拜仁慕尼黑",
+  Bournemouth: "伯恩茅斯",
+  Brighton: "布莱顿",
+  Burnley: "伯恩利",
+  Castellon: "卡斯特利翁",
+  Celta: "塞尔塔",
+  Chelsea: "切尔西",
+  "Crystal Palace": "水晶宫",
+  Dortmund: "多特蒙德",
+  "Ein Frankfurt": "法兰克福",
+  Freiburg: "弗赖堡",
+  Fulham: "富勒姆",
+  Getafe: "赫塔费",
+  Girona: "赫罗纳",
+  Guinea: "几内亚",
+  Bolivia: "玻利维亚",
+  Cyprus: "塞浦路斯",
+  England: "英格兰",
+  France: "法国",
+  Greece: "希腊",
+  Heidenheim: "海登海姆",
+  Hoffenheim: "霍芬海姆",
+  Iraq: "伊拉克",
+  "Ivory Coast": "科特迪瓦",
+  "Las Palmas": "拉斯帕尔马斯",
+  Leverkusen: "勒沃库森",
+  Liverpool: "利物浦",
+  Malaga: "马拉加",
+  Mallorca: "马略卡",
+  "Man City": "曼城",
+  Newcastle: "纽卡斯尔联",
+  "New Zealand": "新西兰",
+  "Northern Ireland": "北爱尔兰",
+  Oviedo: "奥维耶多",
+  "RB Leipzig": "RB 莱比锡",
+  Sevilla: "塞维利亚",
+  Scotland: "苏格兰",
+  Sociedad: "皇家社会",
+  Spain: "西班牙",
+  Slovenia: "斯洛文尼亚",
+  "St Pauli": "圣保利",
+  Stuttgart: "斯图加特",
+  Sunderland: "桑德兰",
+  Sweden: "瑞典",
+  Tottenham: "热刺",
+  "Union Berlin": "柏林联合",
+  Valencia: "瓦伦西亚",
+  Vallecano: "巴列卡诺",
+  Villarreal: "比利亚雷亚尔",
+  "Werder Bremen": "云达不莱梅",
+  "West Ham": "西汉姆联",
+  Wolfsburg: "沃尔夫斯堡",
+  Wolves: "狼队"
+};
+
+const nationalTeamNames = new Set([
+  "Bolivia",
+  "Cyprus",
+  "England",
+  "France",
+  "Greece",
+  "Guinea",
+  "Iraq",
+  "Ivory Coast",
+  "New Zealand",
+  "Northern Ireland",
+  "Scotland",
+  "Slovenia",
+  "Spain",
+  "Sweden"
+]);
+
+async function ensureDataFiles() {
+  await mkdir(dataDir, { recursive: true });
+  if (!existsSync(sourcesFile)) {
+    const defaults = await readJson(defaultSourcesFile, []);
+    await writeJson(sourcesFile, defaults);
+  }
+  if (!existsSync(stateFile)) {
+    await writeJson(stateFile, defaultState);
+  }
+}
+
+async function readJson(file, fallback) {
+  try {
+    return JSON.parse(await readFile(file, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+async function writeJson(file, data) {
+  await writeFile(file, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+async function readState() {
+  return { ...defaultState, ...(await readJson(stateFile, defaultState)) };
+}
+
+async function saveState(nextState) {
+  await writeJson(stateFile, nextState);
+}
+
+async function addLog(level, message, detail = null) {
+  const state = await readState();
+  state.logs = [
+    {
+      id: crypto.randomUUID(),
+      level,
+      message,
+      detail,
+      time: new Date().toISOString()
+    },
+    ...(state.logs || [])
+  ].slice(0, 120);
+  await saveState(state);
+}
+
+function sendJson(response, status, payload) {
+  response.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store"
+  });
+  response.end(JSON.stringify(payload));
+}
+
+async function readBody(request) {
+  const chunks = [];
+  for await (const chunk of request) {
+    chunks.push(chunk);
+  }
+  if (!chunks.length) return {};
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+async function fetchText(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "user-agent": "FootballRecommendationAgent/1.0 (+local)"
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return await response.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function htmlDecode(value = "") {
+  return value
+    .replaceAll("<![CDATA[", "")
+    .replaceAll("]]>", "")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", "\"")
+    .replaceAll("&#39;", "'")
+    .replaceAll("&nbsp;", " ");
+}
+
+function stripHtml(value = "") {
+  return htmlDecode(value.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+function tagValue(block, tag) {
+  const match = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  return match ? stripHtml(match[1]) : "";
+}
+
+function parseRss(xml, source) {
+  const blocks = [...xml.matchAll(/<item[\s\S]*?<\/item>|<entry[\s\S]*?<\/entry>/gi)].map((match) => match[0]);
+  return blocks.slice(0, 50).map((block) => ({
+    id: crypto.randomUUID(),
+    sourceId: source.id,
+    sourceName: source.name,
+    sourceAuthority: Number(source.authority || 50),
+    title: tagValue(block, "title"),
+    content: [tagValue(block, "description"), tagValue(block, "summary"), tagValue(block, "content")].filter(Boolean).join(" "),
+    link: tagValue(block, "link") || (block.match(/<link[^>]+href="([^"]+)"/i)?.[1] ?? ""),
+    publishedAt: parseDate(tagValue(block, "pubDate") || tagValue(block, "updated") || tagValue(block, "published"))
+  }));
+}
+
+function parseDate(value) {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : new Date().toISOString();
+}
+
+function parsePage(text, source) {
+  const title = stripHtml(text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || source.name);
+  const paragraphs = [...text.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
+    .map((match) => stripHtml(match[1]))
+    .filter((item) => item.length > 24)
+    .slice(0, 20);
+  return [{
+    id: crypto.randomUUID(),
+    sourceId: source.id,
+    sourceName: source.name,
+    sourceAuthority: Number(source.authority || 50),
+    title,
+    content: paragraphs.join(" "),
+    link: source.url,
+    publishedAt: new Date().toISOString()
+  }];
+}
+
+async function collectItems() {
+  const sources = (await readJson(sourcesFile, [])).filter((source) => source.enabled !== false);
+  const collected = [];
+  for (const source of sources) {
+    try {
+      const text = await fetchText(source.url);
+      const items = parseSource(text, source);
+      collected.push(...items);
+      await addLog("info", `已抓取 ${source.name}`, `${items.length} 条内容`);
+    } catch (error) {
+      await addLog("warn", `抓取失败：${source.name}`, error.message);
+    }
+  }
+  return collected;
+}
+
+function parseSource(text, source) {
+  if (source.type === "clubelo") return parseClubElo(text, source);
+  if (source.type === "freesupertips") return parseFreeSuperTips(text, source);
+  if (source.type === "football-data-odds") return parseFootballDataOdds(text, source);
+  if (source.type === "web") return parsePage(text, source);
+  return parseRss(text, source);
+}
+
+function parseClubElo(csv, source) {
+  const rows = parseCsv(csv);
+  const today = startOfDay(new Date());
+  const latestDate = new Date(today);
+  latestDate.setDate(latestDate.getDate() + 10);
+
+  return rows
+    .map((row) => clubEloRowToItem(row, source))
+    .filter((item) => {
+      if (!item) return false;
+      const matchDate = startOfDay(new Date(item.matchDate));
+      return matchDate >= today && matchDate <= latestDate;
+    })
+    .sort((left, right) => right.modelConfidence - left.modelConfidence)
+    .slice(0, 30);
+}
+
+function parseCsv(csv) {
+  const lines = csv.trim().split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = parseCsvLine(lines[0]).map((header) => header.replace(/^\uFEFF/, ""));
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
+  });
+}
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let insideQuote = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (character === "\"") {
+      insideQuote = !insideQuote;
+    } else if (character === "," && !insideQuote) {
+      values.push(current);
+      current = "";
+    } else {
+      current += character;
+    }
+  }
+  values.push(current);
+  return values;
+}
+
+function clubEloRowToItem(row, source) {
+  if (!row.Date || !row.Home || !row.Away) return null;
+  const awayWin = sumColumns(row, ["GD<-5", "GD=-5", "GD=-4", "GD=-3", "GD=-2", "GD=-1"]);
+  const draw = Number(row["GD=0"] || 0);
+  const homeWin = sumColumns(row, ["GD=1", "GD=2", "GD=3", "GD=4", "GD=5", "GD>5"]);
+  const outcomes = [
+    { pick: `${row.Home}胜`, probability: homeWin },
+    { pick: "平局", probability: draw },
+    { pick: `${row.Away}胜`, probability: awayWin }
+  ].sort((left, right) => right.probability - left.probability);
+  const best = outcomes[0];
+  if (!best || best.probability < 0.36) return null;
+
+  const fixture = { home: row.Home, away: row.Away };
+  const probabilityText = outcomes.map((outcome) => `${outcome.pick} ${(outcome.probability * 100).toFixed(1)}%`).join(" / ");
+  return {
+    id: crypto.randomUUID(),
+    sourceId: source.id,
+    sourceName: source.name,
+    sourceAuthority: Number(source.authority || 80),
+    title: `${row.Home} vs ${row.Away}`,
+    content: probabilityText,
+    link: source.url,
+    publishedAt: new Date().toISOString(),
+    matchDate: row.Date,
+    hasExactKickoffTime: false,
+    kickoffTimeNote: "ClubElo 公开接口仅提供比赛日期，未提供具体开球时间",
+    leagueCode: row.Country,
+    leagueName: countryNames[row.Country] || row.Country || "未知赛事",
+    fixture,
+    fixtureKey: normalizeFixtureKey(fixture),
+    pick: best.pick,
+    reason: `${row.Date} ${row.Country}：ClubElo 公开赛前概率为 ${probabilityText}`,
+    modelConfidence: best.probability,
+    probabilities: {
+      homeWin,
+      draw,
+      awayWin
+    }
+  };
+}
+
+function sumColumns(row, columns) {
+  return columns.reduce((sum, column) => sum + Number(row[column] || 0), 0);
+}
+
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function parseFreeSuperTips(html, source) {
+  const items = [];
+  const cardPattern = /<time>([\s\S]*?)<\/time>[\s\S]{0,2500}?<div class="Leg__win">([\s\S]*?)<\/div><div class="Leg__lose">([\s\S]*?)<\/div>[\s\S]*?<div class="TipReason__body"><p>([\s\S]*?)<\/p>/g;
+  for (const match of html.matchAll(cardPattern)) {
+    const fixtureText = stripHtml(match[3]);
+    const fixture = extractFixture(fixtureText);
+    if (!fixture) continue;
+    const pick = stripHtml(match[2]);
+    const reason = stripHtml(match[4]);
+    const matchDate = sourceLocalDate("Europe/London");
+    const kickoff = buildKickoff(matchDate, stripHtml(match[1]), "Europe/London");
+    items.push({
+      id: crypto.randomUUID(),
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceAuthority: Number(source.authority || 70),
+      title: fixtureText,
+      content: `${pick}. ${reason}`,
+      link: source.url,
+      publishedAt: new Date().toISOString(),
+      leagueName: inferLeagueName(fixture),
+      matchDate,
+      matchTime: stripHtml(match[1]),
+      ...kickoff,
+      fixture,
+      fixtureKey: normalizeFixtureKey(fixture),
+      pick,
+      reason: `${fixtureText}：${pick}。${reason}`
+    });
+  }
+  return dedupeItems(items).slice(0, 20);
+}
+
+function parseFootballDataOdds(csv, source) {
+  const rows = parseCsv(csv);
+  const today = startOfDay(new Date());
+  const latestDate = new Date(today);
+  latestDate.setDate(latestDate.getDate() + 30);
+
+  return rows
+    .map((row) => footballDataRowToItem(row, source))
+    .filter((item) => {
+      if (!item) return false;
+      const matchDate = startOfDay(new Date(item.matchDate));
+      return matchDate >= today && matchDate <= latestDate;
+    })
+    .sort((left, right) => right.modelConfidence - left.modelConfidence)
+    .slice(0, 20);
+}
+
+function footballDataRowToItem(row, source) {
+  if (!row.Date || !row.HomeTeam || !row.AwayTeam || row.FTR) return null;
+  const odds = {
+    home: firstNumber(row.AvgCH, row.AvgH, row.MaxCH, row.MaxH, row.B365CH, row.B365H),
+    draw: firstNumber(row.AvgCD, row.AvgD, row.MaxCD, row.MaxD, row.B365CD, row.B365D),
+    away: firstNumber(row.AvgCA, row.AvgA, row.MaxCA, row.MaxA, row.B365CA, row.B365A)
+  };
+  if (!odds.home || !odds.draw || !odds.away) return null;
+  const probabilities = normalizeOdds(odds);
+  const outcomes = [
+    { pick: `${row.HomeTeam}胜`, probability: probabilities.homeWin },
+    { pick: "平局", probability: probabilities.draw },
+    { pick: `${row.AwayTeam}胜`, probability: probabilities.awayWin }
+  ].sort((left, right) => right.probability - left.probability);
+  const best = outcomes[0];
+  if (!best || best.probability < 0.36) return null;
+  const fixture = { home: row.HomeTeam, away: row.AwayTeam };
+  const matchDate = parseFootballDataDate(row.Date);
+  const sourceTimeZone = footballDataTimeZones[row.Div] || "Europe/London";
+  const kickoff = buildKickoff(matchDate, row.Time, sourceTimeZone);
+  const probabilityText = outcomes.map((outcome) => `${outcome.pick} ${(outcome.probability * 100).toFixed(1)}%`).join(" / ");
+  return {
+    id: crypto.randomUUID(),
+    sourceId: source.id,
+    sourceName: source.name,
+    sourceAuthority: Number(source.authority || 80),
+    title: `${row.HomeTeam} vs ${row.AwayTeam}`,
+    content: probabilityText,
+    link: source.url,
+    publishedAt: new Date().toISOString(),
+    matchDate,
+    matchTime: row.Time,
+    ...kickoff,
+    leagueCode: row.Div,
+    leagueName: footballDataLeagueNames[row.Div] || row.Div || "未知联赛",
+    fixture,
+    fixtureKey: normalizeFixtureKey(fixture),
+    pick: best.pick,
+    reason: `${matchDate} ${row.Div || ""}：Football-Data 公开赔率隐含概率为 ${probabilityText}`,
+    modelConfidence: best.probability,
+    probabilities: {
+      homeWin: probabilities.homeWin,
+      draw: probabilities.draw,
+      awayWin: probabilities.awayWin
+    }
+  };
+}
+
+function parseFootballDataDate(value) {
+  const [day, month, year] = value.split("/").map(Number);
+  if (!day || !month || !year) return new Date().toISOString().slice(0, 10);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function sourceLocalDate(timeZone) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+function buildKickoff(matchDate, matchTime, sourceTimeZone) {
+  const kickoffDate = zonedTimeToDate(matchDate, matchTime, sourceTimeZone);
+  if (!kickoffDate) {
+    return {
+      hasExactKickoffTime: false,
+      kickoffTimeNote: "来源未提供可解析的具体开球时间"
+    };
+  }
+
+  return {
+    hasExactKickoffTime: true,
+    sourceTimeZone,
+    targetTimeZone,
+    kickoffAtUtc: kickoffDate.toISOString(),
+    kickoffSourceText: formatInTimeZone(kickoffDate, sourceTimeZone),
+    kickoffTargetText: formatInTimeZone(kickoffDate, targetTimeZone)
+  };
+}
+
+function zonedTimeToDate(matchDate, matchTime, timeZone) {
+  const dateMatch = String(matchDate || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const timeMatch = String(matchTime || "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!dateMatch || !timeMatch) return null;
+
+  const [, year, month, day] = dateMatch.map(Number);
+  const [, hour, minute] = timeMatch.map(Number);
+  const firstGuess = new Date(Date.UTC(year, month - 1, day, hour, minute));
+  const firstOffset = timeZoneOffsetMinutes(firstGuess, timeZone);
+  const secondGuess = new Date(firstGuess.getTime() - firstOffset * 60_000);
+  const secondOffset = timeZoneOffsetMinutes(secondGuess, timeZone);
+  return new Date(firstGuess.getTime() - secondOffset * 60_000);
+}
+
+function timeZoneOffsetMinutes(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    timeZoneName: "shortOffset"
+  }).formatToParts(date);
+  const offset = parts.find((part) => part.type === "timeZoneName")?.value || "GMT";
+  const match = offset.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/);
+  if (!match) return 0;
+  const sign = match[1] === "-" ? -1 : 1;
+  return sign * (Number(match[2]) * 60 + Number(match[3] || 0));
+}
+
+function formatInTimeZone(date, timeZone) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).format(date);
+}
+
+function firstNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 1) return number;
+  }
+  return null;
+}
+
+function normalizeOdds(odds) {
+  const home = 1 / odds.home;
+  const draw = 1 / odds.draw;
+  const away = 1 / odds.away;
+  const total = home + draw + away;
+  return {
+    homeWin: home / total,
+    draw: draw / total,
+    awayWin: away / total
+  };
+}
+
+function dedupeItems(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = `${item.fixtureKey}:${item.pick}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function inferLeagueName(fixture) {
+  if (nationalTeamNames.has(fixture.home) || nationalTeamNames.has(fixture.away)) {
+    return "国际赛";
+  }
+  return "公开专家推荐";
+}
+
+function extractRecommendation(item) {
+  if (item.fixture && item.fixtureKey && item.pick) {
+    return item;
+  }
+  const text = `${item.title} ${item.content}`;
+  const fixture = extractFixture(text);
+  if (!fixture) return null;
+  const pick = extractPick(text, fixture);
+  if (!pick) return null;
+  return {
+    ...item,
+    fixture,
+    fixtureKey: normalizeFixtureKey(fixture),
+    pick,
+    reason: extractReason(text)
+  };
+}
+
+function extractFixture(text) {
+  const patterns = [
+    /([\p{Script=Han}A-Za-z0-9 .·'-]{2,24})\s*(?:vs|VS|v|对阵|VS\.|－|-)\s*([\p{Script=Han}A-Za-z0-9 .·'-]{2,24})/u,
+    /([\p{Script=Han}A-Za-z0-9 .·'-]{2,24})\s*(?:迎战|面对|主场战)\s*([\p{Script=Han}A-Za-z0-9 .·'-]{2,24})/u
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return {
+        home: cleanTeam(match[1]),
+        away: cleanTeam(match[2])
+      };
+    }
+  }
+  return null;
+}
+
+function cleanTeam(value) {
+  return value
+    .replace(/^(推荐|看好|周\d+|竞彩|足球|赛事|分析|预测)\s*/i, "")
+    .replace(/\s*(推荐|预测|分析|前瞻|方向|比赛|看好|建议|主胜|客胜|大球|小球|胜|平|负).*$/i, "")
+    .replace(/[：:，,。.!！]+$/g, "")
+    .trim();
+}
+
+function normalizeFixtureKey(fixture) {
+  return [fixture.home, fixture.away]
+    .map((team) => team.toLowerCase().replace(/[^\p{Script=Han}a-z0-9]/gu, ""))
+    .sort()
+    .join("_");
+}
+
+function extractPick(text, fixture) {
+  const lowerText = text.toLowerCase();
+  const home = fixture.home;
+  const away = fixture.away;
+  if (/大\s*\d|大球|over/.test(lowerText)) return "大球";
+  if (/小\s*\d|小球|under/.test(lowerText)) return "小球";
+  if (new RegExp(`(?:看好|推荐|支持|建议|倾向|pick|back)[^。；,，]{0,18}${escapeRegExp(home)}`, "i").test(text)) return `${home}胜`;
+  if (new RegExp(`${escapeRegExp(home)}[^。；,，]{0,18}(?:胜|赢|不败|主胜)`, "i").test(text)) return `${home}胜`;
+  if (new RegExp(`(?:看好|推荐|支持|建议|倾向|pick|back)[^。；,，]{0,18}${escapeRegExp(away)}`, "i").test(text)) return `${away}胜`;
+  if (new RegExp(`${escapeRegExp(away)}[^。；,，]{0,18}(?:胜|赢|不败|客胜)`, "i").test(text)) return `${away}胜`;
+  if (/平局|draw|不败|双选|胜\/平|平\/负/.test(lowerText)) return "谨慎双选";
+  return null;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractReason(text) {
+  const sentences = text.split(/[。.!！；;]/).map((item) => item.trim()).filter(Boolean);
+  const keywords = ["伤", "主场", "客场", "状态", "历史", "交锋", "阵容", "防线", "火力", "稳定", "支持", "数据"];
+  return sentences.find((sentence) => keywords.some((keyword) => sentence.includes(keyword))) || sentences[0] || "多源观点聚合";
+}
+
+function analyzeItems(items) {
+  const extracted = items.map(extractRecommendation).filter(Boolean);
+  const groups = new Map();
+  for (const item of extracted) {
+    const group = groups.get(item.fixtureKey) || {
+      fixture: item.fixture,
+      picks: new Map(),
+      sources: new Map(),
+      reasons: [],
+      newestAt: item.publishedAt,
+      leagueName: item.leagueName || null,
+      leagueCode: item.leagueCode || null,
+      matchDate: item.matchDate || null,
+      matchTime: item.matchTime || null,
+      hasExactKickoffTime: item.hasExactKickoffTime === true,
+      sourceTimeZone: item.sourceTimeZone || null,
+      targetTimeZone: item.targetTimeZone || targetTimeZone,
+      kickoffAtUtc: item.kickoffAtUtc || null,
+      kickoffSourceText: item.kickoffSourceText || null,
+      kickoffTargetText: item.kickoffTargetText || null,
+      kickoffTimeNote: item.kickoffTimeNote || null,
+      probabilities: item.probabilities || null
+    };
+    const pickGroup = group.picks.get(item.pick) || [];
+    pickGroup.push(item);
+    group.picks.set(item.pick, pickGroup);
+    group.sources.set(item.sourceId, item.sourceName);
+    group.reasons.push(item.reason);
+    if (item.leagueName) group.leagueName = item.leagueName;
+    if (item.leagueCode) group.leagueCode = item.leagueCode;
+    if (item.probabilities) group.probabilities = item.probabilities;
+    if (item.matchDate) group.matchDate = item.matchDate;
+    if (item.matchTime) group.matchTime = item.matchTime;
+    if (item.hasExactKickoffTime) group.hasExactKickoffTime = true;
+    if (item.sourceTimeZone) group.sourceTimeZone = item.sourceTimeZone;
+    if (item.targetTimeZone) group.targetTimeZone = item.targetTimeZone;
+    if (item.kickoffAtUtc) group.kickoffAtUtc = item.kickoffAtUtc;
+    if (item.kickoffSourceText) group.kickoffSourceText = item.kickoffSourceText;
+    if (item.kickoffTargetText) group.kickoffTargetText = item.kickoffTargetText;
+    if (item.kickoffTimeNote) group.kickoffTimeNote = item.kickoffTimeNote;
+    if (Date.parse(item.publishedAt) > Date.parse(group.newestAt)) {
+      group.newestAt = item.publishedAt;
+    }
+    groups.set(item.fixtureKey, group);
+  }
+
+  return [...groups.values()]
+    .map(scoreGroup)
+    .filter((recommendation) => recommendation.score >= 45 && recommendation.hasExactKickoffTime)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 3);
+}
+
+function scoreGroup(group) {
+  const pickEntries = [...group.picks.entries()].sort((left, right) => right[1].length - left[1].length);
+  const [pick, supporters] = pickEntries[0];
+  const totalMentions = pickEntries.reduce((sum, [, items]) => sum + items.length, 0);
+  const opponents = totalMentions - supporters.length;
+  const supportingSources = new Map(supporters.map((item) => [item.sourceId, item.sourceName]));
+  const avgAuthority = supporters.reduce((sum, item) => sum + item.sourceAuthority, 0) / supporters.length;
+  const avgModelConfidence = supporters.reduce((sum, item) => sum + Number(item.modelConfidence || 0), 0) / supporters.length;
+  const ageHours = Math.max(0, (Date.now() - Date.parse(group.newestAt)) / 36e5);
+  const sourceConsistency = Math.min(30, (supporters.length / Math.max(totalMentions, 1)) * 30);
+  const reasonQuality = Math.min(25, unique(group.reasons).length * 7 + supporters.length * 3 + (avgModelConfidence ? 8 : 0));
+  const freshness = Math.max(4, 15 - Math.min(11, ageHours / 8));
+  const authority = Math.min(20, avgAuthority / 5);
+  const modelConfidence = avgModelConfidence ? Math.min(20, Math.max(0, (avgModelConfidence - 0.36) * 90)) : 0;
+  const conflictPenalty = Math.min(10, opponents * 4);
+  const score = avgModelConfidence
+    ? Math.round(25 + avgModelConfidence * 100 + Math.min(8, avgAuthority / 10) - conflictPenalty)
+    : Math.round(sourceConsistency + reasonQuality + freshness + authority + modelConfidence - conflictPenalty);
+  const confidence = avgModelConfidence
+    ? modelConfidenceLabel(avgModelConfidence, score)
+    : score >= 80 ? "强烈推荐" : score >= 70 ? "值得关注" : score >= 60 ? "谨慎参考" : "低置信";
+
+  return {
+    id: crypto.randomUUID(),
+    fixture: `${group.fixture.home} vs ${group.fixture.away}`,
+    fixtureZh: `${teamNameZh(group.fixture.home)} vs ${teamNameZh(group.fixture.away)}`,
+    fixtureDisplay: `${teamNameZh(group.fixture.home)} vs ${teamNameZh(group.fixture.away)}（${group.fixture.home} vs ${group.fixture.away}）`,
+    homeTeam: group.fixture.home,
+    awayTeam: group.fixture.away,
+    homeTeamZh: teamNameZh(group.fixture.home),
+    awayTeamZh: teamNameZh(group.fixture.away),
+    leagueName: group.leagueName || "未知赛事",
+    leagueCode: group.leagueCode,
+    pick,
+    pickZh: localizePick(pick, group.fixture),
+    score: Math.max(0, Math.min(100, score)),
+    confidence,
+    supportCount: supporters.length,
+    opposeCount: opponents,
+    fixtureMentionCount: totalMentions,
+    fixtureSourceCount: group.sources.size,
+    supportingSourceCount: supportingSources.size,
+    conflictingSourceCount: Math.max(0, group.sources.size - supportingSources.size),
+    sources: supporters.map((item) => item.sourceName),
+    allSources: [...group.sources.values()],
+    matchDate: group.matchDate,
+    matchTime: group.matchTime,
+    hasExactKickoffTime: group.hasExactKickoffTime,
+    sourceTimeZone: group.sourceTimeZone,
+    targetTimeZone: group.targetTimeZone,
+    kickoffAtUtc: group.kickoffAtUtc,
+    kickoffSourceText: group.kickoffSourceText,
+    kickoffTargetText: group.kickoffTargetText,
+    kickoffTimeNote: group.kickoffTimeNote,
+    probabilities: group.probabilities,
+    reason: summarizeReasons(group.reasons),
+    metrics: {
+      sourceConsistency: Math.round(sourceConsistency),
+      reasonQuality: Math.round(reasonQuality),
+      freshness: Math.round(freshness),
+      authority: Math.round(authority),
+      modelConfidence: Math.round(modelConfidence),
+      conflictPenalty
+    }
+  };
+}
+
+function teamNameZh(teamName) {
+  return teamChineseNames[teamName] || teamName;
+}
+
+function localizePick(pick, fixture) {
+  if (pick === "平局") return "平局";
+  if (/both teams to score/i.test(pick)) return "双方均进球";
+  if (/over\s*2\.5/i.test(pick)) return "大 2.5 球";
+  if (/under\s*3\.5/i.test(pick)) return "小 3.5 球";
+  if (pick === `${fixture.home}胜`) return `${teamNameZh(fixture.home)}胜`;
+  if (pick === `${fixture.away}胜`) return `${teamNameZh(fixture.away)}胜`;
+  if (pick.startsWith(`${fixture.home} `)) return pick.replace(fixture.home, teamNameZh(fixture.home));
+  if (pick.startsWith(`${fixture.away} `)) return pick.replace(fixture.away, teamNameZh(fixture.away));
+  return pick;
+}
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function modelConfidenceLabel(probability, score) {
+  if (probability >= 0.55 && score >= 80) return "强烈推荐";
+  if (probability >= 0.44 && score >= 70) return "值得关注";
+  if (probability >= 0.38 && score >= 60) return "谨慎参考";
+  return "低置信";
+}
+
+function summarizeReasons(reasons) {
+  const cleanReasons = unique(reasons).slice(0, 3);
+  return cleanReasons.join("；") || "多源观点一致，推荐方向较清晰";
+}
+
+async function runAgent() {
+  await addLog("info", "开始执行足球推荐聚合任务");
+  const items = await collectItems();
+  const recommendations = analyzeItems(items);
+  if (!recommendations.length) {
+    await addLog("warn", "未生成真实推荐", "公开来源未返回可评分赛事，系统不会使用虚假或演示数据");
+  }
+  const state = await readState();
+  state.items = items;
+  state.recommendations = recommendations;
+  state.latestRun = new Date().toISOString();
+  await saveState(state);
+  await addLog("info", "任务完成", `生成 ${recommendations.length} 条推荐`);
+  await pushResults(recommendations);
+  return { items, recommendations };
+}
+
+async function pushResults(recommendations) {
+  const state = await readState();
+  if (!state.push?.enabled || !state.push.webhookUrls?.length || !recommendations.length) return;
+  for (const url of state.push.webhookUrls) {
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: "足球推荐聚合 Agent",
+          generatedAt: new Date().toISOString(),
+          recommendations
+        })
+      });
+      await addLog("info", "推送成功", url);
+    } catch (error) {
+      await addLog("warn", "推送失败", `${url}: ${error.message}`);
+    }
+  }
+}
+
+async function handleApi(request, response, url) {
+  if (request.method === "GET" && url.pathname === "/api/health") {
+    return sendJson(response, 200, { ok: true, time: new Date().toISOString() });
+  }
+  if (request.method === "GET" && url.pathname === "/api/sources") {
+    return sendJson(response, 200, await readJson(sourcesFile, []));
+  }
+  if (request.method === "POST" && url.pathname === "/api/sources") {
+    const body = await readBody(request);
+    const sources = await readJson(sourcesFile, []);
+    const nextSource = {
+      id: body.id || crypto.randomUUID(),
+      name: body.name,
+      type: body.type || "rss",
+      url: body.url,
+      authority: Number(body.authority || 50),
+      enabled: body.enabled !== false
+    };
+    if (!nextSource.name || !nextSource.url) {
+      return sendJson(response, 400, { error: "name and url are required" });
+    }
+    await writeJson(sourcesFile, [nextSource, ...sources.filter((source) => source.id !== nextSource.id)]);
+    return sendJson(response, 200, nextSource);
+  }
+  if (request.method === "DELETE" && url.pathname.startsWith("/api/sources/")) {
+    const sourceId = decodeURIComponent(url.pathname.split("/").pop());
+    const sources = await readJson(sourcesFile, []);
+    await writeJson(sourcesFile, sources.filter((source) => source.id !== sourceId));
+    return sendJson(response, 200, { ok: true });
+  }
+  if (request.method === "GET" && url.pathname === "/api/items") {
+    const state = await readState();
+    return sendJson(response, 200, state.items || []);
+  }
+  if (request.method === "GET" && url.pathname === "/api/recommendations") {
+    const state = await readState();
+    return sendJson(response, 200, {
+      latestRun: state.latestRun,
+      recommendations: state.recommendations || []
+    });
+  }
+  if (request.method === "GET" && url.pathname === "/api/logs") {
+    const state = await readState();
+    return sendJson(response, 200, state.logs || []);
+  }
+  if (request.method === "GET" && url.pathname === "/api/config") {
+    const state = await readState();
+    return sendJson(response, 200, {
+      schedule: state.schedule,
+      push: state.push
+    });
+  }
+  if (request.method === "POST" && url.pathname === "/api/config") {
+    const body = await readBody(request);
+    const state = await readState();
+    state.schedule = { ...state.schedule, ...(body.schedule || {}) };
+    state.push = { ...state.push, ...(body.push || {}) };
+    await saveState(state);
+    return sendJson(response, 200, { schedule: state.schedule, push: state.push });
+  }
+  if (request.method === "POST" && url.pathname === "/api/run") {
+    const result = await runAgent();
+    return sendJson(response, 200, {
+      latestRun: new Date().toISOString(),
+      itemCount: result.items.length,
+      recommendations: result.recommendations
+    });
+  }
+  return sendJson(response, 404, { error: "Not found" });
+}
+
+async function serveStatic(request, response, url) {
+  const requestedPath = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
+  const filePath = path.normalize(path.join(publicDir, requestedPath));
+  if (!filePath.startsWith(publicDir) || !existsSync(filePath)) {
+    response.writeHead(404);
+    response.end("Not found");
+    return;
+  }
+  response.writeHead(200, {
+    "content-type": mimeTypes[path.extname(filePath)] || "application/octet-stream"
+  });
+  createReadStream(filePath).pipe(response);
+}
+
+function startScheduler() {
+  let lastRunDay = "";
+  setInterval(async () => {
+    const state = await readState();
+    if (!state.schedule?.enabled) return;
+    const now = new Date();
+    const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const currentDay = now.toISOString().slice(0, 10);
+    if (currentTime === state.schedule.time && lastRunDay !== currentDay) {
+      lastRunDay = currentDay;
+      runAgent().catch((error) => addLog("error", "定时任务失败", error.message));
+    }
+  }, 30_000);
+}
+
+await ensureDataFiles();
+startScheduler();
+
+const server = http.createServer(async (request, response) => {
+  try {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    if (url.pathname.startsWith("/api/")) {
+      await handleApi(request, response, url);
+    } else {
+      await serveStatic(request, response, url);
+    }
+  } catch (error) {
+    await addLog("error", "服务异常", error.message);
+    sendJson(response, 500, { error: error.message });
+  }
+});
+
+server.listen(port, host, () => {
+  console.log(`Football recommendation agent running at http://${host}:${port}`);
+});

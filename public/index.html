@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>每日足球推荐</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="page">
+      <header class="header">
+        <div>
+          <p class="eyebrow">Daily Football Agent</p>
+          <h1>每日足球推荐</h1>
+          <p id="latestRun" class="subtle">尚未运行</p>
+        </div>
+        <button id="runNow" type="button">立即运行</button>
+      </header>
+
+      <section class="timeline" aria-label="每日运行时间线">
+        <article>
+          <time>09:00</time>
+          <div>
+            <h2>开始执行任务</h2>
+            <p>自动启动今日足球推荐聚合流程。</p>
+          </div>
+        </article>
+        <article>
+          <time>09:00-09:10</time>
+          <div>
+            <h2>发现与抓取</h2>
+            <p>从已配置的信息源抓取最新内容。</p>
+          </div>
+        </article>
+        <article>
+          <time>09:10-09:20</time>
+          <div>
+            <h2>分析与整合</h2>
+            <p>提取比赛、推荐方向和理由，合并同场比赛观点。</p>
+          </div>
+        </article>
+        <article>
+          <time>09:20-09:25</time>
+          <div>
+            <h2>筛选推荐</h2>
+            <p>根据多源一致性、理由质量和新鲜度筛出高置信结果。</p>
+          </div>
+        </article>
+        <article>
+          <time>09:25-09:30</time>
+          <div>
+            <h2>生成结果</h2>
+            <p>输出今日最值得关注的 2-3 场比赛。</p>
+          </div>
+        </article>
+      </section>
+
+      <section class="results">
+        <div class="section-title">
+          <h2>今日推荐结果</h2>
+          <button id="refresh" type="button" class="secondary">刷新</button>
+        </div>
+        <div id="recommendations" class="empty">点击“立即运行”生成今日推荐。</div>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

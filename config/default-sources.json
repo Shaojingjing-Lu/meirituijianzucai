@@ -1,0 +1,66 @@
+[
+  {
+    "id": "clubelo-fixtures",
+    "name": "ClubElo Fixtures",
+    "type": "clubelo",
+    "url": "http://api.clubelo.com/Fixtures",
+    "authority": 88,
+    "enabled": true
+  },
+  {
+    "id": "freesupertips-football",
+    "name": "FreeSuperTips Football Tips",
+    "type": "freesupertips",
+    "url": "https://www.freesupertips.com/free-football-betting-tips/",
+    "authority": 76,
+    "enabled": true
+  },
+  {
+    "id": "freesupertips-btts",
+    "name": "FreeSuperTips BTTS Tips",
+    "type": "freesupertips",
+    "url": "https://www.freesupertips.com/both-teams-to-score-tips/",
+    "authority": 74,
+    "enabled": true
+  },
+  {
+    "id": "freesupertips-over25",
+    "name": "FreeSuperTips Over 2.5 Tips",
+    "type": "freesupertips",
+    "url": "https://www.freesupertips.com/over-2-5-goals-betting-tips-and-predictions/",
+    "authority": 74,
+    "enabled": true
+  },
+  {
+    "id": "freesupertips-bet-of-day",
+    "name": "FreeSuperTips Bet of the Day",
+    "type": "freesupertips",
+    "url": "https://www.freesupertips.com/bet-of-the-day-tips/",
+    "authority": 78,
+    "enabled": true
+  },
+  {
+    "id": "football-data-epl",
+    "name": "Football-Data EPL Odds",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/mmz4281/2526/E0.csv",
+    "authority": 82,
+    "enabled": true
+  },
+  {
+    "id": "football-data-laliga",
+    "name": "Football-Data LaLiga Odds",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/mmz4281/2526/SP1.csv",
+    "authority": 82,
+    "enabled": true
+  },
+  {
+    "id": "football-data-bundesliga",
+    "name": "Football-Data Bundesliga Odds",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/mmz4281/2526/D1.csv",
+    "authority": 82,
+    "enabled": true
+  }
+]
