@@ -1,8 +1,10 @@
 .DS_Store
 .runtime/
 .localbin/
+.cache/
 .vercel/
 node_modules/
 npm-debug.log*
 
 data/state.json
+.vercel
