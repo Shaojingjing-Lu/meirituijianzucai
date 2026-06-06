@@ -61,6 +61,33 @@ const footballDataTimeZones = {
 const targetTimeZone = "Asia/Shanghai";
 
 const teamChineseNames = {
+  "Bolivia": "玻利维亚",
+  "Scotland": "苏格兰",
+  "Luxembourg": "卢森堡",
+  "Gibraltar": "直布罗陀",
+  "Kazakhstan": "哈萨克斯坦",
+  "Armenia": "亚美尼亚",
+  "Turkey": "土耳其",
+  "Venezuela": "委内瑞拉",
+  "Egypt": "埃及",
+  "Brazil": "巴西",
+  "El Salvador": "萨尔瓦多",
+  "Qatar": "卡塔尔",
+  "England": "英格兰",
+  "Bosnia-Herzegovina": "波黑",
+  "Panama": "巴拿马",
+  "Switzerland": "瑞士",
+  "Australia": "澳大利亚",
+  "Kenya": "肯尼亚",
+  "Palestine": "巴勒斯坦",
+  "Tunisia": "突尼斯",
+  "Belgium": "比利时",
+  "Wales": "威尔士",
+  "Romania": "罗马尼亚",
+  "Germany": "德国",
+  "USA": "美国",
+  "Chile": "智利",
+  "Portugal": "葡萄牙",
   Almeria: "阿尔梅里亚",
   "Ath Bilbao": "毕尔巴鄂竞技",
   "Aston Villa": "阿斯顿维拉",
@@ -201,6 +228,51 @@ async function readBody(request) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+
+function resolveSourceUrl(source) {
+  if (source.type === "sogou-search") {
+    const query = resolveDateTemplate(source.query || "今日足球推荐 竞彩 分析");
+    return "https://www.sogou.com/web?query=" + encodeURIComponent(query) + "&ie=utf8";
+  }
+  if (source.type === "so-search") {
+    const query = resolveDateTemplate(source.query || "今日足球推荐 竞彩 分析");
+    return "https://m.so.com/s?q=" + encodeURIComponent(query);
+  }
+  const date = dateWithOffset(Number(source.dayOffset || 0));
+  return source.url
+    .replaceAll('{YYYY-MM-DD}', date)
+    .replaceAll('{YYYYMMDD}', date.replaceAll('-', ''));
+}
+
+function resolveDateTemplate(template) {
+  const date = new Date();
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: targetTimeZone,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    weekday: 'long'
+  }).formatToParts(date);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return String(template)
+    .replaceAll('{YYYY年M月D日}', value.year + '年' + value.month + '月' + value.day + '日')
+    .replaceAll('{YYYY-M-D}', value.year + '-' + value.month + '-' + value.day)
+    .replaceAll('{WEEKDAY}', value.weekday || '今日');
+}
+
+function dateWithOffset(offsetDays) {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: targetTimeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return value.year + '-' + value.month + '-' + value.day;
+}
+
 async function fetchText(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12000);
@@ -230,6 +302,15 @@ function htmlDecode(value = "") {
     .replaceAll("&quot;", "\"")
     .replaceAll("&#39;", "'")
     .replaceAll("&nbsp;", " ");
+}
+
+function plainTextFromHtml(html = "") {
+  return htmlDecode(String(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " "))
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function stripHtml(value = "") {
@@ -283,7 +364,7 @@ async function collectItems() {
   const collected = [];
   for (const source of sources) {
     try {
-      const text = await fetchText(source.url);
+      const text = await fetchText(resolveSourceUrl(source));
       const items = parseSource(text, source);
       collected.push(...items);
       await addLog("info", `已抓取 ${source.name}`, `${items.length} 条内容`);
@@ -297,6 +378,11 @@ async function collectItems() {
 function parseSource(text, source) {
   if (source.type === "clubelo") return parseClubElo(text, source);
   if (source.type === "freesupertips") return parseFreeSuperTips(text, source);
+  if (source.type === "yellowcard") return parseYellowCard(text, source);
+  if (source.type === "sportsmole") return collectSportsMole(text, source);
+  if (source.type === "sogou-search") return parseSogouSearch(text, source);
+  if (source.type === "so-search") return parseSogouSearch(text, source);
+  if (source.type === "sofascore") return parseSofaScore(text, source);
   if (source.type === "football-data-odds") return parseFootballDataOdds(text, source);
   if (source.type === "web") return parsePage(text, source);
   return parseRss(text, source);
@@ -431,6 +517,266 @@ function parseFreeSuperTips(html, source) {
   return dedupeItems(items).slice(0, 20);
 }
 
+
+async function collectSportsMole(indexHtml, source) {
+  const links = extractSportsMoleLinks(indexHtml).slice(0, 14);
+  const results = await Promise.allSettled(links.map(async (url) => parseSportsMoleArticle(await fetchText(url), source, url)));
+  return dedupeItems(results.flatMap((result) => result.status === 'fulfilled' && result.value ? [result.value] : []));
+}
+
+function extractSportsMoleLinks(html) {
+  const links = [];
+  for (const match of String(html).matchAll(/href=["']([^"']+prediction-team-news-lineups_[^"']+\.html)["']/gi)) {
+    const url = match[1].startsWith('http') ? match[1] : 'https://www.sportsmole.co.uk' + match[1];
+    if (!links.includes(url)) links.push(url);
+  }
+  return links;
+}
+
+function parseSportsMoleArticle(html, source, url) {
+  const text = plainTextFromHtml(html);
+  const title = text.match(/Preview:\s*([^\n]+?)\s+- prediction/i)?.[1] || '';
+  const fixture = extractFixture(title);
+  if (!fixture) return null;
+  const prediction = text.match(/We say:\s*([\p{Script=Han}A-Za-z0-9 .·'’-]+?)\s+(\d+)s*-s*(\d+)\s+([\p{Script=Han}A-Za-z0-9 .·'’-]+?)(?=\s+[A-Z][a-z]|\s+For data|\s+Written by|$)/u);
+  if (!prediction) return null;
+  const homeGoals = Number(prediction[2]);
+  const awayGoals = Number(prediction[3]);
+  const pick = homeGoals > awayGoals ? fixture.home + '胜' : awayGoals > homeGoals ? fixture.away + '胜' : '平局';
+  const sourceDate = text.match(/([A-Z][a-z]{2}\s+\d{1,2},\s+202\d)\s+(\d{1,2})\.(\d{2})(am|pm)/)?.[1] || '';
+  const matchDate = sourceDate ? parseEnglishArticleDate(sourceDate) : dateWithOffset(0);
+  return {
+    sourceId: source.id,
+    sourceName: source.name,
+    sourceAuthority: Number(source.authority || 74),
+    publishedAt: new Date().toISOString(),
+    leagueName: inferLeagueName(fixture),
+    matchDate,
+    hasExactKickoffTime: false,
+    fixture,
+    fixtureKey: normalizeFixtureKey(fixture),
+    pick,
+    reason: 'Sports Mole 公开预测：' + fixture.home + ' vs ' + fixture.away + '，预测比分 ' + prediction[2] + '-' + prediction[3] + '。' + text.slice(text.indexOf('We say:'), text.indexOf('We say:') + 320),
+    articleUrl: url
+  };
+}
+
+function parseEnglishArticleDate(value) {
+  const date = new Date(value + ' UTC');
+  return Number.isNaN(date.getTime()) ? dateWithOffset(0) : date.toISOString().slice(0, 10);
+}
+
+function parseYellowCard(html, source) {
+  const text = plainTextFromHtml(html);
+  const items = [];
+  const headerPattern = /(周[一二三四五六日天]\d{3})\s+([^\s]{2,16})\s+(\d{2}-\d{2})\s+(\d{1,2}:\d{2})\s+(.{2,28}?)\s+vs\s+(.{2,28}?)(?=\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?|\s+展开完整信息|\s+主队)/gu;
+  const headers = [...text.matchAll(headerPattern)];
+  const seen = new Set();
+  for (let index = 0; index < headers.length; index += 1) {
+    const match = headers[index];
+    const next = headers[index + 1];
+    const context = text.slice(match.index + match[0].length, next ? next.index : Math.min(text.length, match.index + 2600)).replace(/\s+/g, ' ').trim();
+    const fixture = { home: cleanTeam(match[5]), away: cleanTeam(match[6]) };
+    const pick = extractYellowCardPick(context, fixture);
+    if (!pick) continue;
+    const matchDate = dateFromMonthDay(match[3]);
+    const matchTime = normalizeChineseTime(match[4]);
+    const kickoff = buildKickoff(matchDate, matchTime, targetTimeZone);
+    const key = normalizeFixtureKey(fixture) + '|' + pick;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceAuthority: Number(source.authority || 68),
+      publishedAt: new Date().toISOString(),
+      leagueName: match[2],
+      matchDate,
+      matchTime,
+      ...kickoff,
+      fixture,
+      fixtureKey: normalizeFixtureKey(fixture),
+      pick,
+      reason: '黄牌吧公开模型：' + match[1] + ' ' + match[2] + ' ' + fixture.home + ' vs ' + fixture.away + '。' + compactReason(context)
+    });
+  }
+  return dedupeItems(items).slice(0, 30);
+}
+
+function extractYellowCardPick(context, fixture) {
+  const direction = context.match(/方向[:：]\s*([\p{Script=Han}A-Za-z0-9 .·'’-]{1,24}?)(?:\s|建议|稳胆|置信|支持点|$)/u)?.[1]
+    || context.match(/模型主线([\p{Script=Han}A-Za-z0-9 .·'’-]{1,24}?)(?:[（(]|，|,|；|;|\s)/u)?.[1]
+    || '';
+  const value = direction.replace(/\s+/g, '').replace(/。.*$/, '');
+  if (!value) return null;
+  if (value.includes('平')) return '平局';
+  if (value.includes(fixture.home) || /主胜|胜$/.test(value)) return fixture.home + '胜';
+  if (value.includes(fixture.away) || /客胜|负$/.test(value)) return fixture.away + '胜';
+  return value;
+}
+
+function compactReason(context) {
+  return String(context || '')
+    .replace(/展开完整信息[\s\S]*?专业结论/u, '')
+    .replace(/支持点/g, ' 支持点')
+    .replace(/风险点/g, ' 风险点')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 260);
+}
+
+function dateFromMonthDay(monthDay) {
+  const match = String(monthDay || '').match(/^(\d{2})-(\d{2})$/);
+  if (!match) return dateWithOffset(0);
+  const current = datePartsInTimeZone(new Date(), targetTimeZone).date;
+  let year = Number(current.slice(0, 4));
+  const candidate = new Date(Date.UTC(year, Number(match[1]) - 1, Number(match[2])));
+  const today = new Date(Date.UTC(year, Number(current.slice(5, 7)) - 1, Number(current.slice(8, 10))));
+  if (candidate.getTime() < today.getTime() - 180 * 24 * 60 * 60 * 1000) year += 1;
+  return year + '-' + match[1] + '-' + match[2];
+}
+
+function parseSogouSearch(html, source) {
+  const text = plainTextFromHtml(html);
+  if (/SourceVerifyCode|验证码用于确认|百度安全验证/.test(text)) return [];
+  return parseChineseRecommendationText(text, source).slice(0, 25);
+}
+
+function parseChineseRecommendationText(text, source) {
+  const items = [];
+  const matchDate = dateWithOffset(0);
+  const pattern = /(?:(英超|西甲|德甲|意甲|法甲|欧冠|欧联|亚冠|中超|日职|日乙|韩K|澳超|国际赛|世预赛|世界杯|友谊赛|巴西杯|挪超|瑞典超|美职|荷甲|葡超)[：:\s·-]{0,8})?([\p{Script=Han}A-Za-z0-9 .·'’-]{2,24})\s*(?:vs|VS|Vs|v|V|对阵)\s*([\p{Script=Han}A-Za-z0-9 .·'’-]{2,24})(?:[（(]?\s*(\d{1,2}:\d{2})\s*[）)]?)?/gu;
+  const seen = new Set();
+  for (const match of text.matchAll(pattern)) {
+    const start = Math.max(0, match.index - 80);
+    const end = Math.min(text.length, match.index + match[0].length + 280);
+    const context = text.slice(start, end).replace(/\s+/g, ' ').trim();
+    if (!isFreshChineseSearchContext(context)) continue;
+    const fixture = { home: cleanTeam(match[2]), away: cleanTeam(match[3]) };
+    if (!isUsableChineseFixture(fixture)) continue;
+    const pick = extractChinesePick(context, fixture);
+    const matchTime = normalizeChineseTime(match[4] || extractChineseTime(context));
+    if (!pick && !matchTime) continue;
+    const kickoff = matchTime ? buildKickoff(matchDate, matchTime, targetTimeZone) : { hasExactKickoffTime: false };
+    const key = [source.id, normalizeFixtureKey(fixture), pick || 'info', matchTime || ''].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceAuthority: Number(source.authority || 60),
+      publishedAt: new Date().toISOString(),
+      leagueName: match[1] || inferChineseLeagueName(context),
+      matchDate,
+      matchTime,
+      ...kickoff,
+      fixture,
+      fixtureKey: normalizeFixtureKey(fixture),
+      pick,
+      infoOnly: !pick,
+      reason: (pick ? '网页搜索公开摘要：' : '网页搜索赛程时间摘要：') + context.slice(0, 220)
+    });
+  }
+  return dedupeItems(items);
+}
+
+function extractChinesePick(context, fixture) {
+  const rules = [
+    /(?:胜平负|方向|推荐|看法|参考|建议|竞彩)[:：\s]*(?:倾向|看好)?[:：\s]*(主胜|客胜|平局|主负|客不败|主不败|让胜|让平|让负|双平|胜|平|负)/u,
+    /(?:推荐|方向|参考|建议)[:：\s]*(大\s*\d(?:\.\d)?|小\s*\d(?:\.\d)?|大球|小球|总进球\s*\d[、,，/]?\s*\d?)/u,
+    /看好([\p{Script=Han}A-Za-z0-9 .·'’-]{2,20})(?:取胜|不败|赢球|方向)/u
+  ];
+  for (const rule of rules) {
+    const match = context.match(rule);
+    if (!match) continue;
+    const value = match[1].replace(/\s+/g, '');
+    if (/主胜|^胜$/.test(value)) return fixture.home + '胜';
+    if (/客胜|主负|^负$/.test(value)) return fixture.away + '胜';
+    if (/平局|^平$/.test(value)) return '平局';
+    if (/主不败|双平/.test(value)) return fixture.home + '不败';
+    if (/客不败/.test(value)) return fixture.away + '不败';
+    if (/让胜|让平|让负|大球|小球/.test(value)) return value;
+    if (/^大/.test(value)) return value.replace('大', '大 ');
+    if (/^小/.test(value)) return value.replace('小', '小 ');
+    if (value.includes(fixture.home)) return fixture.home + '胜';
+    if (value.includes(fixture.away)) return fixture.away + '胜';
+  }
+  return null;
+}
+
+function extractChineseTime(context) {
+  return context.match(/(?:开赛|比赛|时间|\()[:：\s]*(\d{1,2}:\d{2})/u)?.[1] || context.match(/\b(\d{1,2}:\d{2})\b/u)?.[1] || '';
+}
+
+function normalizeChineseTime(value = '') {
+  const match = String(value).match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return '';
+  return String(Number(match[1])).padStart(2, '0') + ':' + match[2];
+}
+
+function isUsableChineseFixture(fixture) {
+  if (!fixture.home || !fixture.away) return false;
+  if (fixture.home.length < 2 || fixture.away.length < 2) return false;
+  if (fixture.home === fixture.away) return false;
+  const bad = /搜索|推荐|分析|今日|大家|相关|全部|比赛|比分|竞彩|竟彩|足彩|足球|视频|结果|查询|网站|平台|即时|历史|赔率|数据|主队|客队|联赛|时间|来源|推荐您|参考|扫盘|计划|实单|网易|搜狐|腾讯|知乎|哔哩|www|http|.com|.cn|.net|202\d|\d{1,2}月\d{1,2}日/;
+  const suspicious = /[：:：/\\]|^\d+$|^[A-Za-z]{1,2}$/;
+  return !bad.test(fixture.home) && !bad.test(fixture.away) && !suspicious.test(fixture.home) && !suspicious.test(fixture.away);
+}
+
+function isFreshChineseSearchContext(context) {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('zh-CN', { timeZone: targetTimeZone, year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(now);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const year = value.year;
+  const month = value.month;
+  const day = value.day;
+  const freshTokens = [
+    year + '年' + month + '月' + day + '日',
+    year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0'),
+    year + '/' + month + '/' + day,
+    month + '月' + day + '日',
+    '小时前',
+    '分钟前',
+    '今天',
+    '今日'
+  ];
+  if (!freshTokens.some((token) => context.includes(token))) return false;
+  const dated = [...context.matchAll(/(202\d)[年/-](\d{1,2})[月/-](\d{1,2})/g)];
+  return dated.every((match) => match[1] === year && Number(match[2]) === Number(month) && Math.abs(Number(match[3]) - Number(day)) <= 1);
+}
+
+function inferChineseLeagueName(context) {
+  return context.match(/(英超|西甲|德甲|意甲|法甲|欧冠|欧联|亚冠|中超|日职|日乙|韩K|澳超|国际赛|世预赛|世界杯|友谊赛|巴西杯|挪超|瑞典超|美职|荷甲|葡超)/u)?.[1] || '网页搜索推荐';
+}
+
+function parseSofaScore(jsonText, source) {
+  const payload = JSON.parse(jsonText);
+  const now = Date.now();
+  return (payload.events || [])
+    .filter((event) => event?.homeTeam?.name && event?.awayTeam?.name && event.startTimestamp)
+    .filter((event) => event.startTimestamp * 1000 >= now - 2 * 60 * 60 * 1000)
+    .map((event) => {
+      const kickoff = kickoffFromUnixSeconds(event.startTimestamp, 'UTC');
+      const fixture = { home: event.homeTeam.name, away: event.awayTeam.name };
+      const leagueName = [event.tournament?.name, event.category?.name].filter(Boolean).join(' · ') || 'SofaScore 赛程';
+      return {
+        sourceId: source.id,
+        sourceName: source.name,
+        sourceAuthority: Number(source.authority || 70),
+        publishedAt: new Date().toISOString(),
+        leagueName,
+        matchDate: kickoff.matchDate,
+        matchTime: kickoff.matchTime,
+        ...kickoff,
+        fixture,
+        fixtureKey: normalizeFixtureKey(fixture),
+        infoOnly: true,
+        reason: leagueName + '：SofaScore 公开赛程信息，' + fixture.home + ' vs ' + fixture.away
+      };
+    })
+    .slice(0, 120);
+}
+
 function parseFootballDataOdds(csv, source) {
   const rows = parseCsv(csv);
   const today = startOfDay(new Date());
@@ -532,6 +878,39 @@ function buildKickoff(matchDate, matchTime, sourceTimeZone) {
   };
 }
 
+
+function kickoffFromUnixSeconds(timestamp, sourceTimeZone) {
+  const date = new Date(Number(timestamp) * 1000);
+  const targetParts = datePartsInTimeZone(date, targetTimeZone);
+  const sourceParts = datePartsInTimeZone(date, sourceTimeZone);
+  return {
+    hasExactKickoffTime: true,
+    sourceTimeZone,
+    targetTimeZone,
+    kickoffAtUtc: date.toISOString(),
+    kickoffSourceText: formatInTimeZone(date, sourceTimeZone),
+    kickoffTargetText: formatInTimeZone(date, targetTimeZone),
+    matchDate: targetParts.date,
+    matchTime: targetParts.time,
+    sourceMatchDate: sourceParts.date,
+    sourceMatchTime: sourceParts.time
+  };
+}
+
+function datePartsInTimeZone(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return { date: value.year + '-' + value.month + '-' + value.day, time: value.hour + ':' + value.minute };
+}
+
 function zonedTimeToDate(matchDate, matchTime, timeZone) {
   const dateMatch = String(matchDate || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const timeMatch = String(matchTime || "").match(/^(\d{1,2}):(\d{2})$/);
@@ -626,27 +1005,18 @@ function extractRecommendation(item) {
 }
 
 function extractFixture(text) {
-  const patterns = [
-    /([\p{Script=Han}A-Za-z0-9 .·'-]{2,24})\s*(?:vs|VS|v|对阵|VS\.|－|-)\s*([\p{Script=Han}A-Za-z0-9 .·'-]{2,24})/u,
-    /([\p{Script=Han}A-Za-z0-9 .·'-]{2,24})\s*(?:迎战|面对|主场战)\s*([\p{Script=Han}A-Za-z0-9 .·'-]{2,24})/u
-  ];
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) {
-      return {
-        home: cleanTeam(match[1]),
-        away: cleanTeam(match[2])
-      };
-    }
-  }
-  return null;
+  const match = String(text || "").match(/([\p{Script=Han}A-Za-z0-9 .·'’-]{2,40})\s+(?:vs|VS|Vs|v|V)\s+([\p{Script=Han}A-Za-z0-9 .·'’-]{2,40})/u)
+    || String(text || "").match(/([\p{Script=Han}A-Za-z0-9 .·'’-]{2,40})\s*(?:对阵|－|—|-)\s*([\p{Script=Han}A-Za-z0-9 .·'’-]{2,40})/u);
+  if (!match) return null;
+  return { home: cleanTeam(match[1]), away: cleanTeam(match[2]) };
 }
 
 function cleanTeam(value) {
-  return value
-    .replace(/^(推荐|看好|周\d+|竞彩|足球|赛事|分析|预测)\s*/i, "")
-    .replace(/\s*(推荐|预测|分析|前瞻|方向|比赛|看好|建议|主胜|客胜|大球|小球|胜|平|负).*$/i, "")
-    .replace(/[：:，,。.!！]+$/g, "")
+  return String(value || "")
+    .replace(/^[\s\S]{0,8}?(?:周[一二三四五六日天]\d{0,3}|竞彩足球|竞彩|足球|赛事|焦点|推荐|分析|预测|第\d+场)[:：\s-]*/u, "")
+    .replace(/^(?:英超|西甲|德甲|意甲|法甲|欧冠|欧联|亚冠|中超|日职|日乙|韩K|澳超|国际赛|世预赛|世界杯|友谊赛|巴西杯|挪超|瑞典超|美职|荷甲|葡超)[:：\s-]*/u, "")
+    .replace(/\s*(推荐|预测|分析|前瞻|方向|比赛|看好|建议|胜平负|比分|进球数).*$/i, "")
+    .replace(/[()（）【】[\]{}]/g, "")
     .trim();
 }
 
@@ -679,6 +1049,31 @@ function extractReason(text) {
   const sentences = text.split(/[。.!！；;]/).map((item) => item.trim()).filter(Boolean);
   const keywords = ["伤", "主场", "客场", "状态", "历史", "交锋", "阵容", "防线", "火力", "稳定", "支持", "数据"];
   return sentences.find((sentence) => keywords.some((keyword) => sentence.includes(keyword))) || sentences[0] || "多源观点聚合";
+}
+
+function summarizeSources(items) {
+  const stats = new Map();
+  for (const item of items) {
+    const entry = stats.get(item.sourceId) || { sourceId: item.sourceId, sourceName: item.sourceName, itemCount: 0, recommendationItemCount: 0, infoOnlyCount: 0 };
+    entry.itemCount += 1;
+    if (item.pick) entry.recommendationItemCount += 1;
+    if (!item.pick) entry.infoOnlyCount += 1;
+    stats.set(item.sourceId, entry);
+  }
+  return [...stats.values()].sort((left, right) => right.itemCount - left.itemCount);
+}
+
+function previewCandidates(items) {
+  return items.map((item) => ({
+    sourceId: item.sourceId,
+    sourceName: item.sourceName,
+    fixture: item.fixture ? item.fixture.home + ' vs ' + item.fixture.away : '',
+    leagueName: item.leagueName,
+    pick: item.pick || '',
+    matchTime: item.matchTime || '',
+    hasExactKickoffTime: item.hasExactKickoffTime === true,
+    reason: String(item.reason || '').slice(0, 180)
+  })).slice(0, 80);
 }
 
 function analyzeItems(items) {
@@ -725,6 +1120,16 @@ function analyzeItems(items) {
       group.newestAt = item.publishedAt;
     }
     groups.set(item.fixtureKey, group);
+  }
+  for (const item of normalizedItems.filter((entry) => !entry.pick)) {
+    const group = groups.get(item.fixtureKey);
+    if (!group) continue;
+    group.sources.set(item.sourceId, item.sourceName);
+    group.reasons.push(item.reason);
+    for (const key of ["leagueName", "matchDate", "matchTime", "sourceTimeZone", "targetTimeZone", "kickoffAtUtc", "kickoffSourceText", "kickoffTargetText"]) {
+      if (item[key] && !group[key]) group[key] = item[key];
+    }
+    if (item.hasExactKickoffTime && !group.hasExactKickoffTime) group.hasExactKickoffTime = true;
   }
 
   return [...groups.values()]
@@ -807,6 +1212,9 @@ function teamNameZh(teamName) {
 
 function localizePick(pick, fixture) {
   if (pick === "平局") return "平局";
+  if (/不败/.test(pick)) return pick.replace(fixture.home, teamNameZh(fixture.home)).replace(fixture.away, teamNameZh(fixture.away));
+  if (/^让[胜平负]$/.test(pick)) return pick;
+  if (/^[大小]/.test(pick)) return pick;
   if (/both teams to score/i.test(pick)) return "双方均进球";
   if (/over\s*2\.5/i.test(pick)) return "大 2.5 球";
   if (/under\s*3\.5/i.test(pick)) return "小 3.5 球";

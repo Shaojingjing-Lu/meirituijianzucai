@@ -40,6 +40,46 @@
     "enabled": true
   },
   {
+    "id": "yellowcard-today-model",
+    "name": "黄牌吧体育数据分析：今日模型推荐",
+    "type": "yellowcard",
+    "url": "https://www.yellowcard.cn/",
+    "authority": 68,
+    "enabled": true
+  },
+  {
+    "id": "sportsmole-football-previews",
+    "name": "Sports Mole Football Previews",
+    "type": "sportsmole",
+    "url": "https://www.sportsmole.co.uk/football/predictions/",
+    "authority": 74,
+    "enabled": true
+  },
+  {
+    "id": "freesupertips-correct-score",
+    "name": "FreeSuperTips Correct Score Tips",
+    "type": "freesupertips",
+    "url": "https://www.freesupertips.com/football-correct-score-tips/",
+    "authority": 72,
+    "enabled": true
+  },
+  {
+    "id": "freesupertips-bet-builder",
+    "name": "FreeSuperTips Bet Builder Tips",
+    "type": "freesupertips",
+    "url": "https://www.freesupertips.com/bet-builder-tips/",
+    "authority": 72,
+    "enabled": true
+  },
+  {
+    "id": "freesupertips-accumulator",
+    "name": "FreeSuperTips Accumulator Tips",
+    "type": "freesupertips",
+    "url": "https://www.freesupertips.com/accumulator-tips/",
+    "authority": 73,
+    "enabled": true
+  },
+  {
     "id": "football-data-epl",
     "name": "Football-Data EPL Odds",
     "type": "football-data-odds",
