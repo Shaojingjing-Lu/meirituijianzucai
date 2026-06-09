@@ -44,18 +44,30 @@ const countryNames = {
 
 const footballDataLeagueNames = {
   E0: "英格兰超级联赛",
+  E1: "英格兰冠军联赛",
   SP1: "西班牙甲级联赛",
   D1: "德国甲级联赛",
+  D2: "德国乙级联赛",
   I1: "意大利甲级联赛",
-  F1: "法国甲级联赛"
+  F1: "法国甲级联赛",
+  N1: "荷兰甲级联赛",
+  P1: "葡萄牙甲级联赛",
+  T1: "土耳其超级联赛",
+  SC0: "苏格兰超级联赛"
 };
 
 const footballDataTimeZones = {
   E0: "Europe/London",
+  E1: "Europe/London",
   SP1: "Europe/Madrid",
   D1: "Europe/Berlin",
+  D2: "Europe/Berlin",
   I1: "Europe/Rome",
-  F1: "Europe/Paris"
+  F1: "Europe/Paris",
+  N1: "Europe/Amsterdam",
+  P1: "Europe/Lisbon",
+  T1: "Europe/Istanbul",
+  SC0: "Europe/London"
 };
 
 const targetTimeZone = "Asia/Shanghai";
@@ -384,6 +396,9 @@ function parseSource(text, source) {
   if (source.type === "so-search") return parseSogouSearch(text, source);
   if (source.type === "sofascore") return parseSofaScore(text, source);
   if (source.type === "football-data-odds") return parseFootballDataOdds(text, source);
+  if (source.type === "windrawwin") return parseWinDrawWin(text, source);
+  if (source.type === "predictz") return parsePredictZ(text, source);
+  if (source.type === "forebet") return parseForebet(text, source);
   if (source.type === "web") return parsePage(text, source);
   return parseRss(text, source);
 }
@@ -846,6 +861,127 @@ function parseFootballDataDate(value) {
   const [day, month, year] = value.split("/").map(Number);
   if (!day || !month || !year) return new Date().toISOString().slice(0, 10);
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function translateWdwTip(tip, fixture) {
+  const t = String(tip || "").trim().toUpperCase().replace(/\s+/g, "");
+  if (t === "1") return fixture.home + "胜";
+  if (t === "2") return fixture.away + "胜";
+  if (t === "X" || t === "D" || t === "DRAW") return "平局";
+  if (t === "1X") return fixture.home + "不败";
+  if (t === "X2") return fixture.away + "不败";
+  if (t === "12") return "必有胜负";
+  return null;
+}
+
+function parsePredictZ(html, source) {
+  const items = [];
+  const matchDate = sourceLocalDate("Europe/London");
+  const rowPattern = /<tr[^>]*class="[^"]*pzpredrow[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi;
+  for (const rowMatch of html.matchAll(rowPattern)) {
+    const row = rowMatch[1];
+    const time = stripHtml(row.match(/class="[^"]*pztime[^"]*"[^>]*>([\s\S]*?)<\/td>/i)?.[1] || "");
+    const league = stripHtml(row.match(/class="[^"]*pztournament[^"]*"[^>]*>([\s\S]*?)<\/td>/i)?.[1] || "");
+    const home = cleanTeam(stripHtml(row.match(/class="[^"]*pzhometeam[^"]*"[^>]*>([\s\S]*?)<\/td>/i)?.[1] || ""));
+    const away = cleanTeam(stripHtml(row.match(/class="[^"]*pzawayteam[^"]*"[^>]*>([\s\S]*?)<\/td>/i)?.[1] || ""));
+    const tipRaw = stripHtml(row.match(/class="[^"]*pztip[^"]*"[^>]*>([\s\S]*?)<\/td>/i)?.[1] || "");
+    if (!home || !away || home.length < 2 || away.length < 2) continue;
+    const fixture = { home, away };
+    const pick = translateWdwTip(tipRaw, fixture);
+    const kickoff = buildKickoff(matchDate, time, "Europe/London");
+    items.push({
+      id: crypto.randomUUID(),
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceAuthority: Number(source.authority || 70),
+      title: `${fixture.home} vs ${fixture.away}`,
+      content: pick ? `推荐：${pick}` : "",
+      link: source.url,
+      publishedAt: new Date().toISOString(),
+      leagueName: league || inferLeagueName(fixture),
+      matchDate,
+      matchTime: time,
+      ...kickoff,
+      fixture,
+      fixtureKey: normalizeFixtureKey(fixture),
+      pick,
+      reason: `PredictZ 公开预测：${fixture.home} vs ${fixture.away}，推荐 ${pick || tipRaw}`
+    });
+  }
+  return dedupeItems(items).slice(0, 25);
+}
+
+function parseWinDrawWin(html, source) {
+  const items = [];
+  const matchDate = sourceLocalDate("Europe/London");
+  const rowPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  for (const rowMatch of html.matchAll(rowPattern)) {
+    const row = rowMatch[1];
+    const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => stripHtml(m[1]).trim());
+    if (cells.length < 4) continue;
+    const tipIndex = cells.findIndex((c) => /^[12X]{1,2}$/.test(c));
+    if (tipIndex < 1) continue;
+    const home = cleanTeam(cells[tipIndex - 1]);
+    const away = cleanTeam(cells[tipIndex + 1] || "");
+    if (!home || !away || home.length < 2 || away.length < 2 || home === away) continue;
+    const timeCell = cells.find((c) => /^\d{1,2}:\d{2}$/.test(c)) || "";
+    const leagueCell = cells[tipIndex + 2] || cells[tipIndex - 2] || "";
+    const fixture = { home, away };
+    const pick = translateWdwTip(cells[tipIndex], fixture);
+    const kickoff = timeCell ? buildKickoff(matchDate, timeCell, "Europe/London") : { hasExactKickoffTime: false };
+    items.push({
+      id: crypto.randomUUID(),
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceAuthority: Number(source.authority || 71),
+      title: `${fixture.home} vs ${fixture.away}`,
+      content: pick ? `推荐：${pick}` : "",
+      link: source.url,
+      publishedAt: new Date().toISOString(),
+      leagueName: leagueCell || inferLeagueName(fixture),
+      matchDate,
+      matchTime: timeCell,
+      ...kickoff,
+      fixture,
+      fixtureKey: normalizeFixtureKey(fixture),
+      pick,
+      reason: `WinDrawWin 公开预测：${fixture.home} vs ${fixture.away}，推荐 ${pick || cells[tipIndex]}`
+    });
+  }
+  return dedupeItems(items).slice(0, 25);
+}
+
+function parseForebet(html, source) {
+  const items = [];
+  const matchDate = sourceLocalDate("Europe/Paris");
+  const pattern = /class="[^"]*homeTeam[^"]*"[^>]*>[\s\S]{0,200}?<a[^>]*>([^<]+)<\/a>[\s\S]{0,1200}?class="[^"]*predict[^"]*en[^"]*"[^>]*>[\s\S]*?<span[^>]*>([^<]{1,5}?)<\/span>[\s\S]{0,1200}?class="[^"]*awayTeam[^"]*"[^>]*>[\s\S]{0,200}?<a[^>]*>([^<]+)<\/a>/gi;
+  for (const match of html.matchAll(pattern)) {
+    const home = cleanTeam(match[1].trim());
+    const tipRaw = match[2].trim();
+    const away = cleanTeam(match[3].trim());
+    if (!home || !away || home.length < 2 || away.length < 2) continue;
+    const fixture = { home, away };
+    const pick = translateWdwTip(tipRaw, fixture);
+    if (!pick) continue;
+    items.push({
+      id: crypto.randomUUID(),
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceAuthority: Number(source.authority || 72),
+      title: `${fixture.home} vs ${fixture.away}`,
+      content: `推荐：${pick}`,
+      link: source.url,
+      publishedAt: new Date().toISOString(),
+      leagueName: inferLeagueName(fixture),
+      matchDate,
+      hasExactKickoffTime: false,
+      fixture,
+      fixtureKey: normalizeFixtureKey(fixture),
+      pick,
+      reason: `Forebet 统计模型预测：${fixture.home} vs ${fixture.away}，推荐 ${pick}`
+    });
+  }
+  return dedupeItems(items).slice(0, 25);
 }
 
 function sourceLocalDate(timeZone) {

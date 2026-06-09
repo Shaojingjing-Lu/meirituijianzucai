@@ -40,22 +40,6 @@
     "enabled": true
   },
   {
-    "id": "yellowcard-today-model",
-    "name": "黄牌吧体育数据分析：今日模型推荐",
-    "type": "yellowcard",
-    "url": "https://www.yellowcard.cn/",
-    "authority": 68,
-    "enabled": true
-  },
-  {
-    "id": "sportsmole-football-previews",
-    "name": "Sports Mole Football Previews",
-    "type": "sportsmole",
-    "url": "https://www.sportsmole.co.uk/football/predictions/",
-    "authority": 74,
-    "enabled": true
-  },
-  {
     "id": "freesupertips-correct-score",
     "name": "FreeSuperTips Correct Score Tips",
     "type": "freesupertips",
@@ -80,16 +64,40 @@
     "enabled": true
   },
   {
+    "id": "yellowcard-today-model",
+    "name": "黄牌吧体育数据分析：今日模型推荐",
+    "type": "yellowcard",
+    "url": "https://www.yellowcard.cn/",
+    "authority": 68,
+    "enabled": true
+  },
+  {
+    "id": "sportsmole-football-previews",
+    "name": "Sports Mole Football Previews",
+    "type": "sportsmole",
+    "url": "https://www.sportsmole.co.uk/football/predictions/",
+    "authority": 74,
+    "enabled": true
+  },
+  {
     "id": "football-data-epl",
-    "name": "Football-Data EPL Odds",
+    "name": "Football-Data 英超赔率",
     "type": "football-data-odds",
     "url": "https://www.football-data.co.uk/mmz4281/2526/E0.csv",
     "authority": 82,
     "enabled": true
   },
   {
+    "id": "football-data-championship",
+    "name": "Football-Data 英冠赔率",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/mmz4281/2526/E1.csv",
+    "authority": 80,
+    "enabled": true
+  },
+  {
     "id": "football-data-laliga",
-    "name": "Football-Data LaLiga Odds",
+    "name": "Football-Data 西甲赔率",
     "type": "football-data-odds",
     "url": "https://www.football-data.co.uk/mmz4281/2526/SP1.csv",
     "authority": 82,
@@ -97,10 +105,138 @@
   },
   {
     "id": "football-data-bundesliga",
-    "name": "Football-Data Bundesliga Odds",
+    "name": "Football-Data 德甲赔率",
     "type": "football-data-odds",
     "url": "https://www.football-data.co.uk/mmz4281/2526/D1.csv",
     "authority": 82,
+    "enabled": true
+  },
+  {
+    "id": "football-data-bundesliga2",
+    "name": "Football-Data 德乙赔率",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/mmz4281/2526/D2.csv",
+    "authority": 78,
+    "enabled": true
+  },
+  {
+    "id": "football-data-seriea",
+    "name": "Football-Data 意甲赔率",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/mmz4281/2526/I1.csv",
+    "authority": 82,
+    "enabled": true
+  },
+  {
+    "id": "football-data-ligue1",
+    "name": "Football-Data 法甲赔率",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+    "authority": 82,
+    "enabled": true
+  },
+  {
+    "id": "football-data-eredivisie",
+    "name": "Football-Data 荷甲赔率",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/mmz4281/2526/N1.csv",
+    "authority": 80,
+    "enabled": true
+  },
+  {
+    "id": "football-data-ligaportugal",
+    "name": "Football-Data 葡超赔率",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/mmz4281/2526/P1.csv",
+    "authority": 80,
+    "enabled": true
+  },
+  {
+    "id": "football-data-turkey",
+    "name": "Football-Data 土超赔率",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/mmz4281/2526/T1.csv",
+    "authority": 78,
+    "enabled": true
+  },
+  {
+    "id": "football-data-scotland",
+    "name": "Football-Data 苏超赔率",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/mmz4281/2526/SC0.csv",
+    "authority": 78,
+    "enabled": true
+  },
+  {
+    "id": "predictz-today",
+    "name": "PredictZ Today's Predictions",
+    "type": "predictz",
+    "url": "https://www.predictz.com/predictions/",
+    "authority": 72,
+    "enabled": true
+  },
+  {
+    "id": "windrawwin-today",
+    "name": "WinDrawWin Today's Predictions",
+    "type": "windrawwin",
+    "url": "https://www.windrawwin.com/predictions/today/",
+    "authority": 71,
+    "enabled": true
+  },
+  {
+    "id": "forebet-today",
+    "name": "Forebet Today's Predictions",
+    "type": "forebet",
+    "url": "https://www.forebet.com/en/football-tips-and-predictions-for-today",
+    "authority": 72,
+    "enabled": true
+  },
+  {
+    "id": "bbc-sport-football-rss",
+    "name": "BBC Sport Football News",
+    "type": "rss",
+    "url": "https://feeds.bbci.co.uk/sport/football/rss.xml",
+    "authority": 78,
+    "enabled": true
+  },
+  {
+    "id": "guardian-football-rss",
+    "name": "The Guardian Football",
+    "type": "rss",
+    "url": "https://www.theguardian.com/football/rss",
+    "authority": 76,
+    "enabled": true
+  },
+  {
+    "id": "skysports-football-rss",
+    "name": "Sky Sports Football News",
+    "type": "rss",
+    "url": "https://www.skysports.com/rss/12040",
+    "authority": 75,
+    "enabled": true
+  },
+  {
+    "id": "sogou-jingcai-today",
+    "name": "搜狗：今日竞彩胜平负推荐",
+    "type": "sogou-search",
+    "query": "{YYYY年M月D日}竞彩推荐 胜平负 足球分析",
+    "authority": 62,
+    "enabled": true
+  },
+  {
+    "id": "sogou-zuqiu-prediction",
+    "name": "搜狗：今日足球预测",
+    "type": "sogou-search",
+    "query": "{YYYY年M月D日}足球比赛预测分析 今日推荐",
+    "authority": 60,
+    "enabled": true
+  },
+  {
+    "id": "sogou-ouzhou-league",
+    "name": "搜狗：欧洲联赛分析",
+    "type": "sogou-search",
+    "query": "{YYYY年M月D日}欧洲足球联赛 英超西甲德甲 今日推荐",
+    "authority": 60,
     "enabled": true
   }
 ]
