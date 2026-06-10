@@ -45,29 +45,47 @@ const countryNames = {
 const footballDataLeagueNames = {
   E0: "英格兰超级联赛",
   E1: "英格兰冠军联赛",
+  E2: "英格兰甲级联赛",
+  E3: "英格兰乙级联赛",
+  EC: "英格兰非联",
   SP1: "西班牙甲级联赛",
+  SP2: "西班牙乙级联赛",
   D1: "德国甲级联赛",
   D2: "德国乙级联赛",
   I1: "意大利甲级联赛",
+  I2: "意大利乙级联赛",
   F1: "法国甲级联赛",
+  F2: "法国乙级联赛",
   N1: "荷兰甲级联赛",
+  B1: "比利时甲级联赛",
   P1: "葡萄牙甲级联赛",
   T1: "土耳其超级联赛",
-  SC0: "苏格兰超级联赛"
+  G1: "希腊超级联赛",
+  SC0: "苏格兰超级联赛",
+  SC1: "苏格兰冠军联赛"
 };
 
 const footballDataTimeZones = {
   E0: "Europe/London",
   E1: "Europe/London",
+  E2: "Europe/London",
+  E3: "Europe/London",
+  EC: "Europe/London",
   SP1: "Europe/Madrid",
+  SP2: "Europe/Madrid",
   D1: "Europe/Berlin",
   D2: "Europe/Berlin",
   I1: "Europe/Rome",
+  I2: "Europe/Rome",
   F1: "Europe/Paris",
+  F2: "Europe/Paris",
   N1: "Europe/Amsterdam",
+  B1: "Europe/Brussels",
   P1: "Europe/Lisbon",
   T1: "Europe/Istanbul",
-  SC0: "Europe/London"
+  G1: "Europe/Athens",
+  SC0: "Europe/London",
+  SC1: "Europe/London"
 };
 
 const targetTimeZone = "Asia/Shanghai";
@@ -461,6 +479,7 @@ function clubEloRowToItem(row, source) {
   ].sort((left, right) => right.probability - left.probability);
   const best = outcomes[0];
   if (!best || best.probability < 0.36) return null;
+  if (best.probability > 0.70) return null;
 
   const fixture = { home: row.Home, away: row.Away };
   const probabilityText = outcomes.map((outcome) => `${outcome.pick} ${(outcome.probability * 100).toFixed(1)}%`).join(" / ");
@@ -825,6 +844,7 @@ function footballDataRowToItem(row, source) {
   ].sort((left, right) => right.probability - left.probability);
   const best = outcomes[0];
   if (!best || best.probability < 0.36) return null;
+  if (best.probability > 0.70) return null;
   const fixture = { home: row.HomeTeam, away: row.AwayTeam };
   const matchDate = parseFootballDataDate(row.Date);
   const sourceTimeZone = footballDataTimeZones[row.Div] || "Europe/London";
@@ -1271,9 +1291,19 @@ function analyzeItems(items) {
 
   return [...groups.values()]
     .map(scoreGroup)
-    .filter((recommendation) => recommendation.score >= 45 && recommendation.hasExactKickoffTime)
+    .filter((recommendation) => recommendation.score >= 45 && recommendation.hasExactKickoffTime && !isLowValueFavorite(recommendation))
     .sort((left, right) => right.score - left.score)
     .slice(0, 3);
+}
+
+function isLowValueFavorite(recommendation) {
+  const probs = recommendation.probabilities;
+  if (!probs) return false;
+  const pick = recommendation.pick || "";
+  if (pick === `${recommendation.homeTeam}胜`) return Number(probs.homeWin || 0) > 0.70;
+  if (pick === `${recommendation.awayTeam}胜`) return Number(probs.awayWin || 0) > 0.70;
+  if (pick === "平局") return Number(probs.draw || 0) > 0.70;
+  return false;
 }
 
 function scoreGroup(group) {
