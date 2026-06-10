@@ -69,7 +69,7 @@
     "type": "yellowcard",
     "url": "https://www.yellowcard.cn/",
     "authority": 68,
-    "enabled": true
+    "enabled": false
   },
   {
     "id": "sportsmole-football-previews",
@@ -77,6 +77,30 @@
     "type": "sportsmole",
     "url": "https://www.sportsmole.co.uk/football/predictions/",
     "authority": 74,
+    "enabled": true
+  },
+  {
+    "id": "football-data-fixtures",
+    "name": "Football-Data 全联赛未来赛程赔率",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/fixtures.csv",
+    "authority": 84,
+    "enabled": true
+  },
+  {
+    "id": "football-data-belgium",
+    "name": "Football-Data 比甲赔率",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/mmz4281/2526/B1.csv",
+    "authority": 78,
+    "enabled": true
+  },
+  {
+    "id": "football-data-greece",
+    "name": "Football-Data 希超赔率",
+    "type": "football-data-odds",
+    "url": "https://www.football-data.co.uk/mmz4281/2526/G1.csv",
+    "authority": 76,
     "enabled": true
   },
   {
