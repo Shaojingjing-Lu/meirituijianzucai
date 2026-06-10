@@ -1213,7 +1213,8 @@ function previewCandidates(items) {
 }
 
 function analyzeItems(items) {
-  const extracted = items.map(extractRecommendation).filter(Boolean);
+  const normalizedItems = items.filter((entry) => entry.fixture && entry.fixtureKey);
+  const extracted = items.map(extractRecommendation).filter(Boolean).filter((item) => isWinDrawLossPick(item.pick));
   const groups = new Map();
   for (const item of extracted) {
     const group = groups.get(item.fixtureKey) || {
@@ -1344,6 +1345,18 @@ function scoreGroup(group) {
 
 function teamNameZh(teamName) {
   return teamChineseNames[teamName] || teamName;
+}
+
+function isWinDrawLossPick(pick) {
+  const value = String(pick || "").trim();
+  if (!value) return false;
+  if (/双方均进球|both teams to score|btts/i.test(value)) return false;
+  if (/大\s*\d|小\s*\d|大球|小球|over|under|总进球|进球数/i.test(value)) return false;
+  if (/比分|correct score|bet builder|串关|accumulator|角球|黄牌|first|anytime|scorer/i.test(value)) return false;
+  if (value === "平局" || /平局$/.test(value)) return true;
+  if (/胜$|不败$/.test(value)) return true;
+  if (/^让[胜平负]/.test(value) || /让球|亚盘|受让|主不败|客不败|双选/.test(value)) return true;
+  return false;
 }
 
 function localizePick(pick, fixture) {

@@ -21,7 +21,7 @@
     "type": "freesupertips",
     "url": "https://www.freesupertips.com/both-teams-to-score-tips/",
     "authority": 74,
-    "enabled": true
+    "enabled": false
   },
   {
     "id": "freesupertips-over25",
@@ -29,7 +29,7 @@
     "type": "freesupertips",
     "url": "https://www.freesupertips.com/over-2-5-goals-betting-tips-and-predictions/",
     "authority": 74,
-    "enabled": true
+    "enabled": false
   },
   {
     "id": "freesupertips-bet-of-day",
@@ -45,7 +45,7 @@
     "type": "freesupertips",
     "url": "https://www.freesupertips.com/football-correct-score-tips/",
     "authority": 72,
-    "enabled": true
+    "enabled": false
   },
   {
     "id": "freesupertips-bet-builder",
@@ -53,7 +53,7 @@
     "type": "freesupertips",
     "url": "https://www.freesupertips.com/bet-builder-tips/",
     "authority": 72,
-    "enabled": true
+    "enabled": false
   },
   {
     "id": "freesupertips-accumulator",
@@ -61,7 +61,7 @@
     "type": "freesupertips",
     "url": "https://www.freesupertips.com/accumulator-tips/",
     "authority": 73,
-    "enabled": true
+    "enabled": false
   },
   {
     "id": "yellowcard-today-model",
