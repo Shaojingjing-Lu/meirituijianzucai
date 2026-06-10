@@ -720,8 +720,8 @@ function analyzeItems(items) {
 
   return [...groups.values()]
     .map(scoreGroup)
-    .filter((recommendation) => recommendation.score >= 45 && recommendation.hasExactKickoffTime && !isLowValueFavorite(recommendation))
-    .sort((left, right) => right.score - left.score)
+    .filter((recommendation) => recommendation.score >= 45 && !isLowValueFavorite(recommendation))
+    .sort((left, right) => (right.score + (right.hasExactKickoffTime ? 3 : 0)) - (left.score + (left.hasExactKickoffTime ? 3 : 0)))
     .slice(0, 3);
 }
 
